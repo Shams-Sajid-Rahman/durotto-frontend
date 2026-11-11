@@ -29,6 +29,7 @@ It is built with **Next.js 16 / React 19** and works out of the box with its bui
 
 | Area | What you get |
 |------|--------------|
+| **Landing page** (`/`) | Responsive public front page with an interactive WebGL hero built with three.js and React Three Fiber, 3D tilt cards and scroll animations. It adapts to signed-in users, respects reduced-motion settings, falls back to a static design without WebGL, and loads the 3D code only on this page. |
 | **Meetings** | Create rooms (optionally password-protected) and join with a 6-character code. Calls are peer-to-peer WebRTC video/audio with screen sharing, mic/camera toggles and live participant presence. |
 | **In-call chat** | Text and file messages for everyone in the room. History is saved, so late joiners see earlier messages. |
 | **Whiteboard** | A shared canvas with pen, shapes, text, sticky notes and an eraser. Edits, moves, undo/redo and live cursors sync to everyone, and the board persists for late joiners. `/whiteboard` is a personal board. **Save** stores a PNG in Files with the editable board embedded, so **Open in Whiteboard** brings it back fully editable; Save then updates that file and **Save copy** creates a new one. Any other image can be opened to draw on. |
@@ -264,6 +265,7 @@ CI should run `npm run lint`, `npm run typecheck`, `npm test` and `npm run build
 
 ```text
 app/
+  page.tsx           public landing page (components/landing/)
   (auth)/            login, signup, forgot-password
   admin/             admin console + admin login
   api/               route handlers (the built-in backend)
