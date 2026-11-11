@@ -39,3 +39,20 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# env templates are documentation, not secrets
+!.env.example
+!backend/.env.example
+
+# local data (JSON database with password hashes, uploaded files)
+/.data/
+
+# test output
+/.test-data/
+
+# Python backend
+backend/.venv/
+backend/*.db
+backend/uploads/
+__pycache__/
+.pytest_cache/
