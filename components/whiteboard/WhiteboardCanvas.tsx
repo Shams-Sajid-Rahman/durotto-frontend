@@ -7,6 +7,7 @@ import {
   Ellipse,
   Group,
   IText,
+  InteractiveFabricObject,
   PencilBrush,
   Rect,
   Textbox,
@@ -45,6 +46,23 @@ interface DrawPayload {
 }
 
 const BACKGROUND = "#FAFAFA";
+/** Drags shorter than this count as a click (default-size shape). */
+const MIN_DRAG_PX = 4;
+
+// Larger, clearly visible selection handles than Fabric's faint defaults, so
+// it's obvious that objects can be resized and rotated.
+InteractiveFabricObject.ownDefaults = {
+  ...InteractiveFabricObject.ownDefaults,
+  transparentCorners: false,
+  cornerStyle: "circle",
+  cornerSize: 12,
+  touchCornerSize: 28,
+  cornerColor: "#FFFFFF",
+  cornerStrokeColor: "#7C5CFF",
+  borderColor: "#7C5CFF",
+  borderScaleFactor: 1.5,
+  padding: 4,
+};
 const CURSOR_THROTTLE_MS = 50;
 const MAX_HISTORY = 100;
 
@@ -152,7 +170,6 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCan
         backgroundColor: BACKGROUND,
         selection: true,
         preserveObjectStacking: true,
-        hoverCursor: "default",
         fireRightClick: true,
       });
       fabricRef.current = canvas;
@@ -287,6 +304,15 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCan
         saveHistory();
       });
 
+      /** Shape currently being drawn by dragging (rectangle/ellipse tools). */
+      let draft: {
+        shape: Rect | Ellipse;
+        startX: number;
+        startY: number;
+        width: number;
+        height: number;
+      } | null = null;
+
       canvas.on("mouse:down", (event) => {
         const tool = toolRef.current;
         const pointer = canvas.getScenePoint(event.e);
@@ -314,38 +340,79 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCan
           text.enterEditing();
         } else if (tool === "sticky") {
           canvas.add(createSticky(pointer.x, pointer.y, "#FEF3C7"));
-        } else if (tool === "rectangle") {
-          canvas.add(
-            new Rect({
-              left: pointer.x,
-              top: pointer.y,
-              width: 140,
-              height: 90,
-              fill: "transparent",
-              stroke,
-              strokeWidth: strokeWidthValue,
-              strokeUniform: true,
-            }),
-          );
-        } else if (tool === "ellipse") {
-          canvas.add(
-            new Ellipse({
-              left: pointer.x,
-              top: pointer.y,
-              rx: 70,
-              ry: 45,
-              fill: "transparent",
-              stroke,
-              strokeWidth: strokeWidthValue,
-              strokeUniform: true,
-            }),
-          );
+        } else if (tool === "rectangle" || tool === "ellipse") {
+          // Drag-to-draw: the shape grows with the pointer until mouse-up.
+          // Anchored at its top-left so left/top track the drag rectangle
+          // (Fabric 7 defaults to a centre origin).
+          const common = {
+            left: pointer.x,
+            top: pointer.y,
+            originX: "left" as const,
+            originY: "top" as const,
+            fill: "transparent",
+            stroke,
+            strokeWidth: strokeWidthValue,
+            strokeUniform: true,
+          };
+          const shape =
+            tool === "rectangle"
+              ? new Rect({ ...common, width: 1, height: 1 })
+              : new Ellipse({ ...common, rx: 0.5, ry: 0.5 });
+          shape.set("strokeId", generateStrokeId());
+          // Broadcast once on mouse-up, not while it is still being sized.
+          suppressRef.current += 1;
+          canvas.add(shape);
+          suppressRef.current -= 1;
+          draft = { shape, startX: pointer.x, startY: pointer.y, width: 0, height: 0 };
         }
+      });
+
+      /** Resize the shape being drawn so it spans start point → pointer. */
+      const sizeDraft = (x: number, y: number) => {
+        if (!draft) return;
+        const left = Math.min(x, draft.startX);
+        const top = Math.min(y, draft.startY);
+        draft.width = Math.abs(x - draft.startX);
+        draft.height = Math.abs(y - draft.startY);
+        if (draft.shape instanceof Rect) {
+          draft.shape.set({ left, top, width: draft.width, height: draft.height });
+        } else {
+          draft.shape.set({ left, top, rx: draft.width / 2, ry: draft.height / 2 });
+        }
+        draft.shape.setCoords();
+        canvas.requestRenderAll();
+      };
+
+      canvas.on("mouse:up", (event) => {
+        if (!draft) return;
+        const end = canvas.getScenePoint(event.e);
+        sizeDraft(end.x, end.y);
+        const finished = draft;
+        draft = null;
+        // A plain click (no real drag) places a default-sized shape.
+        if (finished.width < MIN_DRAG_PX && finished.height < MIN_DRAG_PX) {
+          if (finished.shape instanceof Rect) finished.shape.set({ width: 140, height: 90 });
+          else finished.shape.set({ rx: 70, ry: 45 });
+          finished.shape.setCoords();
+        }
+        sendDraw({
+          strokeId: strokeIdOf(finished.shape)!,
+          action: "add",
+          objectData: serializeObject(finished.shape),
+        });
+        saveHistory();
+        // Select it so the resize/rotate handles are immediately available.
+        canvas.setActiveObject(finished.shape);
+        canvas.requestRenderAll();
       });
 
       // Share our pointer position (throttled) for live cursors.
       let lastCursorSent = 0;
       canvas.on("mouse:move", (event) => {
+        if (draft) {
+          const p = canvas.getScenePoint(event.e);
+          sizeDraft(p.x, p.y);
+        }
         const now = Date.now();
         if (now - lastCursorSent < CURSOR_THROTTLE_MS) return;
         lastCursorSent = now;
@@ -500,6 +567,8 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCan
       if (!canvas) return;
       canvas.isDrawingMode = currentTool === "pen";
       canvas.selection = currentTool === "select";
+      canvas.defaultCursor =
+        currentTool === "rectangle" || currentTool === "ellipse" ? "crosshair" : "default";
       if (canvas.freeDrawingBrush) {
         canvas.freeDrawingBrush.width = widthRef.current;
         canvas.freeDrawingBrush.color = colorRef.current;
