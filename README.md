@@ -31,7 +31,7 @@ It is built with **Next.js 16 / React 19** and works out of the box with its bui
 |------|--------------|
 | **Meetings** | Create rooms (optionally password-protected) and join with a 6-character code. Calls are peer-to-peer WebRTC video/audio with screen sharing, mic/camera toggles and live participant presence. |
 | **In-call chat** | Text and file messages for everyone in the room. History is saved, so late joiners see earlier messages. |
-| **Whiteboard** | A shared canvas with pen, shapes, text, sticky notes and an eraser. Edits, moves, undo/redo and live cursors sync to everyone, and the board persists for late joiners. `/whiteboard` is a personal, local-only board. |
+| **Whiteboard** | A shared canvas with pen, shapes, text, sticky notes and an eraser. Edits, moves, undo/redo and live cursors sync to everyone, and the board persists for late joiners. `/whiteboard` is a personal board. **Save** stores a PNG in Files with the editable board embedded, so **Open in Whiteboard** brings it back fully editable; Save then updates that file and **Save copy** creates a new one. Any other image can be opened to draw on. |
 | **Files** | Upload, download, rename, favourite (per user), move to Trash, restore and permanently delete files. Files shared into a room are visible to that room's members. Each user has a 10 GB quota. |
 | **Notifications** | Notifications for "X joined your room", "file shared in your room" and a welcome message, with live unread badges. |
 | **Dashboard** | Your rooms, people in calls right now, and recent activity. |
@@ -213,6 +213,7 @@ Uploads take three steps: **presign → PUT the bytes → confirm**.
 | GET | `/files` | Your files (including Trash) plus files shared in your rooms |
 | GET | `/files/usage` | `{totalBytes, limitBytes, …}` |
 | PATCH | `/files/{id}` | Rename (uploader only) |
+| POST | `/files/{id}/replace` | `{fileSize, fileType}` → `{uploadUrl}`. Overwrite your own file with new contents of the same type, keeping its id, name and sharing (used to re-save a whiteboard). |
 | POST / DELETE | `/files/{id}/favorite` | Per-user favourite |
 | DELETE | `/files/{id}` | Move to Trash (uploader only) |
 | POST | `/files/{id}/restore` | Restore from Trash |

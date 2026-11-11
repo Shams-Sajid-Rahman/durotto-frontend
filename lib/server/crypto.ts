@@ -106,15 +106,39 @@ export function verifyToken(token: string | null | undefined): TokenPayload | nu
 
 const UPLOAD_TOKEN_TTL_MS = 15 * 60 * 1000;
 
-export function signUploadToken(fileId: string, userId: string): string {
-  return encode({ typ: "upload", fid: fileId, sub: userId, exp: Date.now() + UPLOAD_TOKEN_TTL_MS });
+/**
+ * `replace` tokens let the owner overwrite an already-uploaded file's bytes
+ * (e.g. re-saving an edited whiteboard), capped at `maxBytes`.
+ */
+export function signUploadToken(
+  fileId: string,
+  userId: string,
+  replace?: { maxBytes: number },
+): string {
+  return encode({
+    typ: "upload",
+    fid: fileId,
+    sub: userId,
+    exp: Date.now() + UPLOAD_TOKEN_TTL_MS,
+    ...(replace ? { rep: true, max: replace.maxBytes } : {}),
+  });
+}
+
+export interface UploadGrant {
+  sub: string;
+  /** Present for replace tokens: overwrite an existing file up to this size. */
+  replaceMaxBytes?: number;
 }
 
 export function verifyUploadToken(
   token: string | null | undefined,
   fileId: string,
-): { sub: string } | null {
+): UploadGrant | null {
   const payload = decode(token);
   if (!payload || payload.typ !== "upload" || payload.fid !== fileId) return null;
-  return typeof payload.sub === "string" ? { sub: payload.sub } : null;
+  if (typeof payload.sub !== "string") return null;
+  if (payload.rep === true) {
+    return typeof payload.max === "number" ? { sub: payload.sub, replaceMaxBytes: payload.max } : null;
+  }
+  return { sub: payload.sub };
 }

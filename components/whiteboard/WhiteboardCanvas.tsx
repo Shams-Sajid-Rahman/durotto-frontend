@@ -5,6 +5,7 @@ import {
   Canvas,
   Circle,
   Ellipse,
+  FabricImage,
   Group,
   IText,
   InteractiveFabricObject,
@@ -23,7 +24,15 @@ export interface WhiteboardCanvasHandle {
   redo: () => void;
   /** PNG of everything drawn (cropped to the content), or null if the board is empty. */
   exportImage: () => Promise<Blob | null>;
+  /** The editable board (Fabric JSON) — embedded in saved PNGs so they can be reopened. */
+  exportDocument: () => Record<string, unknown> | null;
 }
+
+/** What to show when a standalone board opens (from a saved file). */
+export type WhiteboardInitialContent =
+  | { kind: "document"; data: Record<string, unknown> }
+  | { kind: "image"; dataUrl: string }
+  | null;
 
 interface WhiteboardCanvasProps {
   roomId: string;
@@ -34,6 +43,8 @@ interface WhiteboardCanvasProps {
   zoom: number;
   /** Fetch persisted strokes for the room (off for the standalone board). */
   loadHistory?: boolean;
+  /** Board or picture to start from (standalone boards opened from Files). */
+  initialContent?: WhiteboardInitialContent;
   onSignalingMessage: (callback: (message: SignalingMessage) => void) => () => void;
   sendSignalingMessage: (message: SignalingMessage) => void;
   onUndoRedoChange: (state: { canUndo: boolean; canRedo: boolean }) => void;
@@ -127,6 +138,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCan
       strokeWidth,
       zoom,
       loadHistory = true,
+      initialContent = null,
       onSignalingMessage,
       sendSignalingMessage,
       onUndoRedoChange,
@@ -160,8 +172,12 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCan
     const undoRef = useRef<() => void>(() => {});
     const redoFnRef = useRef<() => void>(() => {});
     const exportRef = useRef<() => Promise<Blob | null>>(async () => null);
+    const exportDocRef = useRef<() => Record<string, unknown> | null>(() => null);
+    // Read once when the canvas is created (the panel is keyed by file).
+    const initialContentRef = useRef(initialContent);
     useImperativeHandle(ref, () => ({
       exportImage: () => exportRef.current(),
+      exportDocument: () => exportDocRef.current(),
       undo: () => undoRef.current(),
       redo: () => redoFnRef.current(),
     }));
@@ -507,6 +523,12 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCan
         }
       };
 
+      // Live cursors are excludeFromExport, so toObject() leaves them out.
+      exportDocRef.current = () =>
+        drawables(canvas).length > 0
+          ? (canvas.toObject(["strokeId"]) as Record<string, unknown>)
+          : null;
+
       redoFnRef.current = () => {
         const next = redoRef.current.pop();
         if (!next) return;
@@ -569,6 +591,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCan
 
       (async () => {
         try {
+          const initial = initialContentRef.current;
           if (loadHistory) {
             const strokes = await rooms.whiteboard(roomId);
             for (const stroke of strokes) {
@@ -577,6 +600,39 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCan
                 await applyRemote({ strokeId: stroke.strokeId, action: "add", objectData: stroke.objectData });
               }
             }
+          } else if (initial?.kind === "document") {
+            // Reopened whiteboard: restore every object, fully editable.
+            suppressRef.current += 1;
+            try {
+              await canvas.loadFromJSON(initial.data);
+            } finally {
+              suppressRef.current -= 1;
+            }
+            if (disposed) return;
+            canvas.backgroundColor = BACKGROUND;
+            for (const object of drawables(canvas)) {
+              if (!strokeIdOf(object)) object.set("strokeId", generateStrokeId());
+            }
+          } else if (initial?.kind === "image") {
+            // Plain picture: place it scaled to fit, ready to draw on.
+            // (A data URL, so the picture survives in the saved board.)
+            const image = await FabricImage.fromURL(initial.dataUrl);
+            if (disposed) return;
+            const fit = Math.min(
+              1,
+              (canvas.getWidth() * 0.85) / (image.width || 1),
+              (canvas.getHeight() * 0.85) / (image.height || 1),
+            );
+            image.set({
+              left: canvas.getWidth() / 2,
+              top: canvas.getHeight() / 2,
+              scaleX: fit,
+              scaleY: fit,
+            });
+            image.set("strokeId", generateStrokeId());
+            suppressRef.current += 1;
+            canvas.add(image);
+            suppressRef.current -= 1;
           }
         } catch {
           // History is best-effort; live drawing still works.
@@ -598,6 +654,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCan
         undoRef.current = () => {};
         redoFnRef.current = () => {};
         exportRef.current = async () => null;
+        exportDocRef.current = () => null;
         fabricRef.current = null;
         void canvas.dispose();
       };

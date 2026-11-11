@@ -326,20 +326,15 @@ export const files = {
 };
 
 /** Upload a file through presign → PUT → confirm. */
-export async function uploadFile(
-  file: File,
-  roomId: string | null,
+/** PUT bytes to a presigned upload URL, reporting progress. */
+function putWithProgress(
+  url: string,
+  file: Blob,
   onProgress?: (fraction: number) => void,
-): Promise<RoomFile> {
-  const presign = await files.presign({
-    roomId: roomId ?? "",
-    fileName: file.name,
-    fileType: file.type || "application/octet-stream",
-    fileSize: file.size,
-  });
-  await new Promise<void>((resolve, reject) => {
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("PUT", presign.uploadUrl);
+    xhr.open("PUT", url);
     xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress?.(event.loaded / event.total);
@@ -351,7 +346,41 @@ export async function uploadFile(
     xhr.onerror = () => reject(new Error("File upload failed. Check your connection."));
     xhr.send(file);
   });
+}
+
+/** Upload a new file through presign → PUT → confirm. */
+export async function uploadFile(
+  file: File,
+  roomId: string | null,
+  onProgress?: (fraction: number) => void,
+): Promise<RoomFile> {
+  const presign = await files.presign({
+    roomId: roomId ?? "",
+    fileName: file.name,
+    fileType: file.type || "application/octet-stream",
+    fileSize: file.size,
+  });
+  await putWithProgress(presign.uploadUrl, file, onProgress);
   return files.confirm({ fileId: presign.fileId, roomId: roomId ?? "" });
+}
+
+/**
+ * Overwrite an existing file you own with new contents of the same type
+ * (keeps its id, name and sharing) — e.g. re-saving an edited whiteboard.
+ */
+export async function replaceFileContent(
+  fileId: string,
+  content: Blob,
+  onProgress?: (fraction: number) => void,
+): Promise<void> {
+  const { uploadUrl } = await request<{ uploadUrl: string; fileId: string }>(
+    `/files/${encodeURIComponent(fileId)}/replace`,
+    {
+      method: "POST",
+      body: JSON.stringify({ fileSize: content.size, fileType: content.type || "application/octet-stream" }),
+    },
+  );
+  await putWithProgress(uploadUrl, content, onProgress);
 }
 
 // ── Users ─────────────────────────────────────────────────────────────────────

@@ -141,3 +141,23 @@ def test_trash_lifecycle(make_user):
     assert alice.delete(f"/files/{fid}/delete").status_code == 200
     assert alice.get("/files").json() == []
     assert not services.stored_path(fid).exists()
+
+
+def test_replace_file_content(make_user):
+    alice, bob = make_user("Alice"), make_user("Bob")
+    room = alice.post("/rooms", json={"name": "R"}).json()
+    bob.post("/rooms/join-by-code", json={"code": room["join_code"]})
+    file, _ = _upload(alice, room_id=room["id"])
+    new = b"edited board contents"
+
+    assert bob.post(f"/files/{file['id']}/replace", json={"fileSize": len(new), "fileType": "text/plain"}).status_code == 403
+    assert alice.post(f"/files/{file['id']}/replace", json={"fileSize": 5, "fileType": "image/png"}).status_code == 415
+
+    res = alice.post(f"/files/{file['id']}/replace", json={"fileSize": len(new), "fileType": "text/plain"})
+    assert res.status_code == 200, res.text
+    url = urlparse(res.json()["uploadUrl"])
+    assert alice.client.put(f"{url.path}?{url.query}", content=new + b"!").status_code == 413
+    assert alice.get(f"/files/{file['id']}/download").content == CONTENT  # failed replace kept old bytes
+    assert alice.client.put(f"{url.path}?{url.query}", content=new).status_code == 200
+    assert alice.get(f"/files/{file['id']}/download").content == new
+    assert [f["id"] for f in alice.get("/files").json()] == [file["id"]]

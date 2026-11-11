@@ -61,7 +61,7 @@ export function fileView(db: Database, file: DbFile, viewerId: string) {
     mimeType: file.mimeType,
     uploaderId: file.uploaderId,
     uploaderName: uploader?.name ?? "(deleted user)",
-    uploadedAt: file.createdAt,
+    uploadedAt: file.updatedAt ?? file.createdAt,
     roomId: file.roomId ?? undefined,
     roomName: room?.name,
     roomOwnerId: room?.hostId,

@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Minus, Plus, RotateCcw, RotateCw, Save } from "lucide-react";
+import { CopyPlus, Loader2, Minus, Plus, RotateCcw, RotateCw, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface WhiteboardBottomBarProps {
@@ -14,6 +14,8 @@ interface WhiteboardBottomBarProps {
   onRedo: () => void;
   /** Save the board as an image to Files. */
   onSave?: () => void;
+  /** Save as a new file instead of updating the open one. */
+  onSaveCopy?: () => void;
   saving?: boolean;
   compact?: boolean;
 }
@@ -30,6 +32,7 @@ export function WhiteboardBottomBar({
   onUndo,
   onRedo,
   onSave,
+  onSaveCopy,
   saving = false,
   compact = false,
 }: WhiteboardBottomBarProps) {
@@ -98,6 +101,18 @@ export function WhiteboardBottomBar({
         >
           <RotateCw className="h-4 w-4" />
         </button>
+        {onSaveCopy ? (
+          <button
+            type="button"
+            onClick={onSaveCopy}
+            disabled={saving}
+            title="Save as a new file"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-surface text-text-secondary transition hover:bg-surface-elevated hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-start disabled:cursor-wait disabled:opacity-60"
+            aria-label="Save a copy to Files"
+          >
+            <CopyPlus className="h-4 w-4" />
+          </button>
+        ) : null}
         {onSave ? (
           <button
             type="button"

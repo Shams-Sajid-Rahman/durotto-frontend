@@ -16,6 +16,7 @@ from schemas import (
     PresignRequest,
     PresignResponse,
     RenameRequest,
+    ReplaceRequest,
     UsageResponse,
 )
 from services import (
@@ -146,33 +147,39 @@ async def upload_file_content(
 ):
     """Receive the bytes. Authorised by the signed single-file token in the URL;
     only while the reservation is pending, so the URL can't overwrite later."""
-    uploader_id = verify_upload_token(token, file_id)
-    if uploader_id is None:
+    grant = verify_upload_token(token, file_id)
+    if grant is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Upload link is invalid or has expired.")
+    uploader_id, replace_cap = grant
     record = db.query(File).filter(File.id == file_id).first()
     if record is None or record.uploader_id != uploader_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found.")
-    if record.storage_path != _PENDING:
+    if replace_cap is not None:
+        if record.storage_path == _PENDING or record.deleted_at is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This file can't be updated.")
+    elif record.storage_path != _PENDING:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This file has already been uploaded.")
 
-    limit = min(MAX_UPLOAD_BYTES, record.size)
+    limit = min(MAX_UPLOAD_BYTES, replace_cap if replace_cap is not None else record.size)
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > limit:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File is larger than declared.")
 
     path = stored_path(file_id)
+    tmp = path.with_name(path.name + ".part")
     received = 0
-    with path.open("wb") as out:
+    with tmp.open("wb") as out:
         async for chunk in request.stream():
             received += len(chunk)
             if received > limit:
                 out.close()
-                path.unlink(missing_ok=True)
+                tmp.unlink(missing_ok=True)
                 raise HTTPException(
                     status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                     detail="File is larger than declared.",
                 )
             out.write(chunk)
+    tmp.replace(path)  # atomic: a failed replace never corrupts the old bytes
 
     record.storage_path = file_id
     record.size = received
@@ -214,6 +221,31 @@ def confirm_upload(
     db.commit()
     db.refresh(record)
     return file_out(db, record, current_user)
+
+
+@router.post("/{file_id}/replace", response_model=PresignResponse)
+def replace_file_content(
+    file_id: str,
+    request: Request,
+    body: ReplaceRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Start overwriting a file you own with new contents of the same type
+    (keeps its id, name and sharing). Returns a short-lived upload URL."""
+    record = _get_file(db, file_id, current_user, own=True)
+    if record.storage_path == _PENDING or record.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This file can't be updated.")
+    if normalize_mime(body.fileType) != record.mime_type:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="The new contents must be the same file type.",
+        )
+    if _used_bytes(db, current_user) - record.size + body.fileSize > STORAGE_LIMIT_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Storage quota exceeded.")
+    token = create_upload_token(record.id, current_user.id, replace_max_bytes=body.fileSize)
+    base = str(request.base_url).rstrip("/")
+    return PresignResponse(uploadUrl=f"{base}/files/{record.id}/upload?token={quote(token)}", fileId=record.id)
 
 
 @router.patch("/{file_id}", response_model=FileOut)

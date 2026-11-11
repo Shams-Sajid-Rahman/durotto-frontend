@@ -102,7 +102,7 @@ backend/
     auth.py            /auth/{login,register,forgot-password,change-password}
     users.py           /users/me (+ settings, stats, sessions, export), /users/online
     rooms.py           CRUD, join-by-code, messages, files, whiteboard
-    files.py           presign → upload → confirm, rename, favourites, trash, download
+    files.py           presign → upload → confirm, replace contents, rename, favourites, trash, download
     notifications.py   list, mark read
     websocket.py       POST /ws/ticket and the /ws/{room_id} signaling hub
   tests/               pytest suite

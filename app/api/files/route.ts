@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
         f.uploaderId === user.id ||
         (!f.deletedAt && f.roomId !== null && memberRoomIds.has(f.roomId)),
     )
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .sort((a, b) => (b.updatedAt ?? b.createdAt).localeCompare(a.updatedAt ?? a.createdAt))
     .map((f) => fileView(db, f, user.id));
 
   return NextResponse.json(files);

@@ -269,6 +269,11 @@ class PresignResponse(BaseModel):
     fileId: str
 
 
+class ReplaceRequest(BaseModel):
+    fileSize: int = Field(ge=0, le=100_000_000)
+    fileType: str = Field(default="application/octet-stream", max_length=100)
+
+
 class ConfirmRequest(BaseModel):
     fileId: str
     roomId: Optional[str] = None

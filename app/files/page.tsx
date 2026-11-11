@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { FileText, UploadCloud, Inbox } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { files, uploadFile, type RoomFile } from "@/lib/api";
@@ -23,6 +24,7 @@ function saveBlob(blob: Blob, name: string) {
 
 export default function FilesPage() {
   const { user } = useAuth();
+  const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [filesList, setFilesList] = useState<RoomFile[]>([]);
   const [usage, setUsage] = useState({ usedBytes: 0, totalBytes: DEFAULT_LIMIT_BYTES });
@@ -156,6 +158,7 @@ export default function FilesPage() {
                 file={file}
                 viewMode={viewMode}
                 currentUserId={user?.id}
+                onOpen={(item) => router.push(`/whiteboard?file=${encodeURIComponent(item.id)}`)}
                 onDownload={(item) => run(async () => saveBlob(await files.download(item.id), item.name), "Download failed.")}
                 onFavoriteToggle={(item) => run(async () => {
                   const next = !item.isFavorite;

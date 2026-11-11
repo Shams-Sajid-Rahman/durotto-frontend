@@ -82,6 +82,8 @@ export interface DbFile {
   favoriteBy: string[];
   deletedAt: string | null;
   createdAt: string;
+  /** Set when the contents are overwritten (e.g. a re-saved whiteboard). */
+  updatedAt?: string;
 }
 
 export interface DbMessage {

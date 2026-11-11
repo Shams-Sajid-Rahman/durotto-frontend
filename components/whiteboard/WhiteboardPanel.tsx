@@ -3,9 +3,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { CheckCircle2, AlertCircle, X } from "lucide-react";
-import { uploadFile } from "@/lib/api";
+import { replaceFileContent, uploadFile } from "@/lib/api";
+import {
+  boardFileName,
+  buildBoardPng,
+  derivedFileName,
+  type WhiteboardFileRef,
+} from "@/lib/whiteboard-file";
 import { PresenceAvatar } from "@/components/shared/PresenceAvatar";
-import { WhiteboardCanvas, type WhiteboardCanvasHandle } from "@/components/whiteboard/WhiteboardCanvas";
+import {
+  WhiteboardCanvas,
+  type WhiteboardCanvasHandle,
+  type WhiteboardInitialContent,
+} from "@/components/whiteboard/WhiteboardCanvas";
 import { WhiteboardToolbar, type WhiteboardTool } from "@/components/whiteboard/WhiteboardToolbar";
 import { WhiteboardBottomBar } from "@/components/whiteboard/WhiteboardBottomBar";
 import type { Participant } from "@/lib/webrtc/usePeerConnections";
@@ -24,6 +34,10 @@ interface WhiteboardPanelProps {
    * save to the user’s personal library.
    */
   saveRoomId?: string | null;
+  /** Board/picture to start from when opened from Files (standalone only). */
+  initialContent?: WhiteboardInitialContent;
+  /** The file being edited, if the board was opened from Files. */
+  openedFile?: WhiteboardFileRef | null;
   onClose?: () => void;
   onSignalingMessage: (callback: (message: SignalingMessage) => void) => () => void;
   sendSignalingMessage: (message: SignalingMessage) => void;
@@ -35,15 +49,9 @@ const STATUS_TIMEOUT_MS = 6000;
 type SaveStatus =
   | { kind: "idle" }
   | { kind: "saving" }
-  | { kind: "saved"; fileName: string }
+  | { kind: "saved"; fileName: string; updated: boolean }
   | { kind: "error"; message: string };
 
-/** "Whiteboard 2026-11-11 15-42.png" in local time. */
-function boardFileName(date = new Date()) {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-  return `Whiteboard ${day} ${pad(date.getHours())}-${pad(date.getMinutes())}.png`;
-}
 const MOBILE_QUERY = "(max-width: 639px)";
 
 function subscribeToViewport(callback: () => void) {
@@ -68,6 +76,8 @@ export function WhiteboardPanel({
   participants,
   loadHistory = true,
   saveRoomId = null,
+  initialContent = null,
+  openedFile = null,
   onClose,
   onSignalingMessage,
   sendSignalingMessage,
@@ -92,25 +102,50 @@ export function WhiteboardPanel({
     }
   }, []);
 
-  const handleSave = useCallback(async () => {
-    if (saveStatus.kind === "saving") return;
-    showStatus({ kind: "saving" });
-    try {
-      const blob = await canvasRef.current?.exportImage();
-      if (!blob) {
-        showStatus({ kind: "error", message: "The board is empty — draw something first." });
-        return;
+  // The file this board saves into. Starts as the opened file (if any); after
+  // the first save of a new board it becomes that new file, so later saves
+  // update it instead of piling up copies.
+  const [currentFile, setCurrentFile] = useState<WhiteboardFileRef | null>(openedFile);
+
+  /** Render the board to a PNG with the editable board embedded. */
+  const renderBoard = useCallback(async (): Promise<Blob | null> => {
+    const canvas = canvasRef.current;
+    const image = await canvas?.exportImage();
+    const board = canvas?.exportDocument();
+    if (!image || !board) return null;
+    return buildBoardPng(image, board);
+  }, []);
+
+  const save = useCallback(
+    async (asCopy: boolean) => {
+      if (saveStatus.kind === "saving") return;
+      showStatus({ kind: "saving" });
+      try {
+        const png = await renderBoard();
+        if (!png) {
+          showStatus({ kind: "error", message: "The board is empty — draw something first." });
+          return;
+        }
+        if (currentFile?.canOverwrite && !asCopy) {
+          await replaceFileContent(currentFile.id, png);
+          showStatus({ kind: "saved", fileName: currentFile.name, updated: true });
+          return;
+        }
+        const name = currentFile
+          ? derivedFileName(currentFile.name, currentFile.canOverwrite ? "copy" : "edited")
+          : boardFileName();
+        const created = await uploadFile(new File([png], name, { type: "image/png" }), saveRoomId);
+        setCurrentFile({ id: created.id, name: created.name, canOverwrite: true });
+        showStatus({ kind: "saved", fileName: created.name, updated: false });
+      } catch (err) {
+        showStatus({
+          kind: "error",
+          message: err instanceof Error ? err.message : "Could not save the whiteboard.",
+        });
       }
-      const fileName = boardFileName();
-      await uploadFile(new File([blob], fileName, { type: "image/png" }), saveRoomId);
-      showStatus({ kind: "saved", fileName });
-    } catch (err) {
-      showStatus({
-        kind: "error",
-        message: err instanceof Error ? err.message : "Could not save the whiteboard.",
-      });
-    }
-  }, [saveRoomId, saveStatus.kind, showStatus]);
+    },
+    [currentFile, renderBoard, saveRoomId, saveStatus.kind, showStatus],
+  );
 
   const activeParticipants = useMemo(
     () => participants.filter((participant) => participant.id !== currentUserId),
@@ -141,7 +176,12 @@ export function WhiteboardPanel({
       <div className="flex items-center justify-between gap-3 border-b border-border-subtle bg-surface-elevated px-4 py-4">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-text-secondary">{title}</p>
-          <p className="mt-1 text-lg font-semibold text-text-primary">Collaborative board</p>
+          <p
+            className="mt-1 max-w-[60vw] truncate text-lg font-semibold text-text-primary"
+            title={currentFile?.name}
+          >
+            {currentFile ? currentFile.name.replace(/.png$/i, "") : "Collaborative board"}
+          </p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -174,6 +214,7 @@ export function WhiteboardPanel({
             strokeWidth={STROKE_WIDTH}
             zoom={zoom}
             loadHistory={loadHistory}
+            initialContent={initialContent}
             onSignalingMessage={onSignalingMessage}
             sendSignalingMessage={sendSignalingMessage}
             onUndoRedoChange={handleUndoRedoChange}
@@ -188,7 +229,8 @@ export function WhiteboardPanel({
             canRedo={canRedo}
             onUndo={() => canvasRef.current?.undo()}
             onRedo={() => canvasRef.current?.redo()}
-            onSave={() => void handleSave()}
+            onSave={() => void save(false)}
+            onSaveCopy={currentFile ? () => void save(true) : undefined}
             saving={saveStatus.kind === "saving"}
             compact={isMobile}
           />
@@ -207,7 +249,8 @@ export function WhiteboardPanel({
                 <>
                   <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
                   <span className="truncate">
-                    Saved <span className="font-medium">{saveStatus.fileName}</span>
+                    {saveStatus.updated ? "Updated" : "Saved"}{" "}
+                    <span className="font-medium">{saveStatus.fileName}</span>
                   </span>
                   <Link
                     href="/files"

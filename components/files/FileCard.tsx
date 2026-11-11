@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Download, ImageIcon, FileVideo, FileAudio, File, MoreHorizontal, Star, Share2, Pencil, Trash2, RotateCcw, Trash } from "lucide-react";
+import { Download, ImageIcon, FileVideo, FileAudio, File, MoreHorizontal, Star, Share2, Pencil, Trash2, RotateCcw, Trash, PenLine } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { RoomFile } from "@/lib/api";
 
@@ -12,6 +12,8 @@ interface FileCardProps {
   onDownload: (file: RoomFile) => void;
   onFavoriteToggle: (file: RoomFile) => void;
   onShare?: (file: RoomFile) => void;
+  /** Open in the whiteboard (offered for images). */
+  onOpen?: (file: RoomFile) => void;
   onRename: (file: RoomFile) => void;
   onDelete: (file: RoomFile) => void;
   onRestore?: (file: RoomFile) => void;
@@ -65,6 +67,7 @@ export function FileCard({
   onDownload,
   onFavoriteToggle,
   onShare,
+  onOpen,
   onRename,
   onDelete,
   onRestore,
@@ -75,6 +78,7 @@ export function FileCard({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const canManage = currentUserId ? file.uploaderId === currentUserId : false;
+  const canOpen = !!onOpen && file.mimeType.startsWith("image/") && !file.deletedAt;
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -104,9 +108,16 @@ export function FileCard({
     return (
       <div className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-border-subtle bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-md)]", getFileAccent(file.name))}>
+          <button
+            type="button"
+            disabled={!canOpen}
+            onClick={() => onOpen?.(file)}
+            title={canOpen ? "Open in Whiteboard" : undefined}
+            aria-label={canOpen ? `Open ${file.name} in Whiteboard` : file.name}
+            className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-md)] transition", getFileAccent(file.name), canOpen ? "cursor-pointer hover:ring-2 hover:ring-accent-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-start" : "cursor-default")}
+          >
             {getFileIcon(file.name)}
-          </div>
+          </button>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <p className="truncate text-sm font-medium text-text-primary" title={title}>{title}</p>
@@ -153,6 +164,9 @@ export function FileCard({
             {menuOpen ? (
               <div ref={menuRef} className="absolute right-0 top-12 z-20 w-44 rounded-[var(--radius-md)] border border-border-subtle bg-surface-elevated p-2 shadow-xl" role="menu">
                 <button type="button" className="flex w-full items-center gap-2 rounded-[var(--radius-sm)] px-2 py-2 text-sm text-text-primary hover:bg-surface" onClick={() => { onDownload(file); setMenuOpen(false); }}><Download className="h-4 w-4" />Download</button>
+                {canOpen ? (
+                  <button type="button" className="flex w-full items-center gap-2 rounded-[var(--radius-sm)] px-2 py-2 text-sm text-text-primary hover:bg-surface" onClick={() => { onOpen?.(file); setMenuOpen(false); }}><PenLine className="h-4 w-4" />Open in Whiteboard</button>
+                ) : null}
                 {onShare ? (
                   <button type="button" className="flex w-full items-center gap-2 rounded-[var(--radius-sm)] px-2 py-2 text-sm text-text-primary hover:bg-surface" onClick={() => { onShare(file); setMenuOpen(false); }}><Share2 className="h-4 w-4" />Share</button>
                 ) : null}
@@ -178,9 +192,16 @@ export function FileCard({
   return (
     <div className="flex flex-col rounded-[var(--radius-lg)] border border-border-subtle bg-surface p-4 transition hover:border-accent-start">
       <div className="flex items-start justify-between gap-2">
-        <div className={cn("flex h-16 w-16 items-center justify-center rounded-[var(--radius-lg)]", getFileAccent(file.name))}>
+        <button
+          type="button"
+          disabled={!canOpen}
+          onClick={() => onOpen?.(file)}
+          title={canOpen ? "Open in Whiteboard" : undefined}
+          aria-label={canOpen ? `Open ${file.name} in Whiteboard` : file.name}
+          className={cn("flex h-16 w-16 items-center justify-center rounded-[var(--radius-lg)] transition", getFileAccent(file.name), canOpen ? "cursor-pointer hover:ring-2 hover:ring-accent-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-start" : "cursor-default")}
+        >
           {getFileIcon(file.name)}
-        </div>
+        </button>
         <button
           type="button"
           onClick={() => onFavoriteToggle(file)}
@@ -214,6 +235,9 @@ export function FileCard({
           {menuOpen ? (
             <div ref={menuRef} className="absolute right-0 top-12 z-20 w-44 rounded-[var(--radius-md)] border border-border-subtle bg-surface-elevated p-2 shadow-xl" role="menu">
               <button type="button" className="flex w-full items-center gap-2 rounded-[var(--radius-sm)] px-2 py-2 text-sm text-text-primary hover:bg-surface" onClick={() => { onDownload(file); setMenuOpen(false); }}><Download className="h-4 w-4" />Download</button>
+                {canOpen ? (
+                  <button type="button" className="flex w-full items-center gap-2 rounded-[var(--radius-sm)] px-2 py-2 text-sm text-text-primary hover:bg-surface" onClick={() => { onOpen?.(file); setMenuOpen(false); }}><PenLine className="h-4 w-4" />Open in Whiteboard</button>
+                ) : null}
               {onShare ? (
                 <button type="button" className="flex w-full items-center gap-2 rounded-[var(--radius-sm)] px-2 py-2 text-sm text-text-primary hover:bg-surface" onClick={() => { onShare(file); setMenuOpen(false); }}><Share2 className="h-4 w-4" />Share</button>
               ) : null}

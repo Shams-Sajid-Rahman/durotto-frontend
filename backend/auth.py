@@ -102,16 +102,26 @@ def decode_access_token(token: str | None) -> dict | None:
     return payload
 
 
-def create_upload_token(file_id: str, user_id: str) -> str:
-    return _encode({"sub": user_id, "fid": file_id, "typ": "upload"}, UPLOAD_TOKEN_EXPIRE_MINUTES)
+def create_upload_token(file_id: str, user_id: str, replace_max_bytes: int | None = None) -> str:
+    """Upload token for one file. With `replace_max_bytes` it lets the owner
+    overwrite an existing file (e.g. re-saving an edited whiteboard)."""
+    claims = {"sub": user_id, "fid": file_id, "typ": "upload"}
+    if replace_max_bytes is not None:
+        claims.update({"rep": True, "max": replace_max_bytes})
+    return _encode(claims, UPLOAD_TOKEN_EXPIRE_MINUTES)
 
 
-def verify_upload_token(token: str | None, file_id: str) -> str | None:
-    """Return the uploader's user id if the token grants uploading this file."""
+def verify_upload_token(token: str | None, file_id: str) -> tuple[str, int | None] | None:
+    """(uploader id, replace byte cap or None) if the token grants uploading this file."""
     payload = _decode(token)
     if not payload or payload.get("typ") != "upload" or payload.get("fid") != file_id:
         return None
-    return payload.get("sub")
+    if not payload.get("sub"):
+        return None
+    if payload.get("rep") is True:
+        cap = payload.get("max")
+        return (payload["sub"], cap) if isinstance(cap, int) else None
+    return payload["sub"], None
 
 
 # ---------------------------------------------------------------------------

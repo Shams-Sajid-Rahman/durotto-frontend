@@ -176,3 +176,51 @@ describe("rename, trash and permanent delete", () => {
     expect(list).toEqual([]);
   });
 });
+
+describe("replacing a file's contents (re-saving an edited whiteboard)", () => {
+  async function requestReplace(token: string, id: string, body: unknown) {
+    const { POST } = await import("@/app/api/files/[id]/replace/route");
+    return POST(req("POST", `/api/files/${id}/replace`, { token, body }), ctx({ id }));
+  }
+
+  it("lets the owner overwrite the bytes, keeping the same file", async () => {
+    const alice = await registerUser();
+    const file = await uploadText(alice.token);
+    const updated = new TextEncoder().encode("edited contents, longer than before");
+
+    const res = await requestReplace(alice.token, file.id, { fileSize: updated.byteLength, fileType: "text/plain" });
+    expect(res.status).toBe(200);
+    const { uploadUrl } = await res.json();
+    expect(uploadUrl.startsWith(`/api/files/${file.id}/upload?token=`)).toBe(true);
+
+    // can't exceed the size declared for the replacement
+    const tooBig = await upload(req("PUT", uploadUrl, { rawBody: new Uint8Array(updated.byteLength + 1) }), ctx({ id: file.id }));
+    expect(tooBig.status).toBe(413);
+
+    expect((await upload(req("PUT", uploadUrl, { rawBody: updated }), ctx({ id: file.id }))).status).toBe(200);
+    const dl = await download(req("GET", "/x", { token: alice.token }), ctx({ id: file.id }));
+    expect(new Uint8Array(await dl.arrayBuffer())).toEqual(updated);
+
+    const list = await (await listFiles(req("GET", "/api/files", { token: alice.token }))).json();
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ id: file.id, size: updated.byteLength });
+  });
+
+  it("is owner-only and keeps the file type", async () => {
+    const host = await registerUser();
+    const member = await registerUser();
+    const room = await createRoom(host.token);
+    await joinRoom(member.token, room.join_code);
+    const file = await uploadText(host.token, room.id);
+
+    expect((await requestReplace(member.token, file.id, { fileSize: 5, fileType: "text/plain" })).status).toBe(403);
+    expect((await requestReplace(host.token, file.id, { fileSize: 5, fileType: "image/png" })).status).toBe(415);
+  });
+
+  it("a replace token can't complete a pending (never-uploaded) file", async () => {
+    const alice = await registerUser();
+    const { fileId } = await (await presignFile(alice.token)).json();
+    // Only ready files can be replaced.
+    expect((await requestReplace(alice.token, fileId, { fileSize: 5, fileType: "text/plain" })).status).toBe(409);
+  });
+});
