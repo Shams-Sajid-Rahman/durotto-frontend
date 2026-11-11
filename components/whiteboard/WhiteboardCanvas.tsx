@@ -21,6 +21,8 @@ import { type WhiteboardTool } from "@/components/whiteboard/WhiteboardToolbar";
 export interface WhiteboardCanvasHandle {
   undo: () => void;
   redo: () => void;
+  /** PNG of everything drawn (cropped to the content), or null if the board is empty. */
+  exportImage: () => Promise<Blob | null>;
 }
 
 interface WhiteboardCanvasProps {
@@ -46,6 +48,8 @@ interface DrawPayload {
 }
 
 const BACKGROUND = "#FAFAFA";
+/** Saved images are rendered at 2× for crisp text and lines. */
+const EXPORT_SCALE = 2;
 /** Drags shorter than this count as a click (default-size shape). */
 const MIN_DRAG_PX = 4;
 
@@ -155,7 +159,9 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCan
 
     const undoRef = useRef<() => void>(() => {});
     const redoFnRef = useRef<() => void>(() => {});
+    const exportRef = useRef<() => Promise<Blob | null>>(async () => null);
     useImperativeHandle(ref, () => ({
+      exportImage: () => exportRef.current(),
       undo: () => undoRef.current(),
       redo: () => redoFnRef.current(),
     }));
@@ -466,6 +472,41 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCan
         redoRef.current.push(history.pop()!);
         void restoreSnapshot(history[history.length - 1]);
       };
+      exportRef.current = async () => {
+        const objects = drawables(canvas);
+        if (objects.length === 0) return null;
+
+        // Crop to the drawn content (scene coordinates) plus a margin.
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const object of objects) {
+          const box = object.getBoundingRect();
+          minX = Math.min(minX, box.left);
+          minY = Math.min(minY, box.top);
+          maxX = Math.max(maxX, box.left + box.width);
+          maxY = Math.max(maxY, box.top + box.height);
+        }
+        const margin = 32;
+
+        // Export at 1:1 scene scale regardless of the current zoom/pan, then restore.
+        const viewport = [...canvas.viewportTransform] as typeof canvas.viewportTransform;
+        canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+        try {
+          return await canvas.toBlob({
+            format: "png",
+            multiplier: EXPORT_SCALE,
+            left: minX - margin,
+            top: minY - margin,
+            width: maxX - minX + margin * 2,
+            height: maxY - minY + margin * 2,
+            // Leave out other people’s live cursors.
+            filter: (object) => !object.excludeFromExport,
+          });
+        } finally {
+          canvas.setViewportTransform(viewport);
+          canvas.requestRenderAll();
+        }
+      };
+
       redoFnRef.current = () => {
         const next = redoRef.current.pop();
         if (!next) return;
@@ -556,6 +597,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCan
         unsubscribe();
         undoRef.current = () => {};
         redoFnRef.current = () => {};
+        exportRef.current = async () => null;
         fabricRef.current = null;
         void canvas.dispose();
       };

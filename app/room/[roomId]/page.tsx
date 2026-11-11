@@ -517,6 +517,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
       <SidePanel title="Whiteboard" open={openPanel === "whiteboard"} onClose={() => setOpenPanel(null)}>
         <WhiteboardPanel
           roomId={roomId}
+          saveRoomId={roomId}
           currentUserId={user.id}
           participants={participants}
           onClose={() => setOpenPanel(null)}

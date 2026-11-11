@@ -1,6 +1,6 @@
 "use client";
 
-import { Minus, Plus, RotateCcw, RotateCw } from "lucide-react";
+import { Loader2, Minus, Plus, RotateCcw, RotateCw, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface WhiteboardBottomBarProps {
@@ -12,6 +12,9 @@ interface WhiteboardBottomBarProps {
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  /** Save the board as an image to Files. */
+  onSave?: () => void;
+  saving?: boolean;
   compact?: boolean;
 }
 
@@ -26,6 +29,8 @@ export function WhiteboardBottomBar({
   canRedo,
   onUndo,
   onRedo,
+  onSave,
+  saving = false,
   compact = false,
 }: WhiteboardBottomBarProps) {
   return (
@@ -93,6 +98,22 @@ export function WhiteboardBottomBar({
         >
           <RotateCw className="h-4 w-4" />
         </button>
+        {onSave ? (
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving}
+            title="Save to Files"
+            className={cn(
+              "inline-flex h-10 items-center justify-center gap-1.5 rounded-full bg-accent-gradient text-sm font-semibold text-white transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-start disabled:cursor-wait disabled:opacity-70",
+              compact ? "w-10" : "px-4",
+            )}
+            aria-label="Save whiteboard to Files"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {compact ? null : saving ? "Saving…" : "Save"}
+          </button>
+        ) : null}
       </div>
     </div>
   );
